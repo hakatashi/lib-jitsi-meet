@@ -233,7 +233,14 @@ export default function JitsiConference(options) {
 
     this.videoSIPGWHandler = new VideoSIPGW(this.room);
     this.recordingManager = new RecordingManager(this.room);
-    this._conferenceJoinAnalyticsEventSent = false;
+
+    /**
+     * If the conference.joined event has been sent this will store the timestamp when it happened.
+     *
+     * @type {undefined|number}
+     * @private
+     */
+    this._conferenceJoinAnalyticsEventSent = undefined;
 }
 
 // FIXME convert JitsiConference to ES6 - ASAP !
@@ -542,6 +549,9 @@ JitsiConference.prototype.leave = function() {
     this.getLocalTracks().forEach(track => this.onLocalTrackRemoved(track));
 
     this.rtc.closeBridgeChannel();
+
+    this._sendConferenceLeftAnalyticsEvent();
+
     if (this.statistics) {
         this.statistics.dispose();
     }
@@ -2337,29 +2347,6 @@ JitsiConference.prototype.isStartVideoMuted = function() {
 };
 
 /**
- * Get object with internal logs.
- */
-JitsiConference.prototype.getLogs = function() {
-    const data = this.xmpp.getJingleLog();
-
-    const metadata = {};
-
-    metadata.time = new Date();
-    metadata.url = window.location.href;
-    metadata.ua = navigator.userAgent;
-
-    const log = this.xmpp.getXmppLog();
-
-    if (log) {
-        metadata.xmpp = log;
-    }
-
-    data.metadata = metadata;
-
-    return data;
-};
-
-/**
  * Returns measured connectionTimes.
  */
 JitsiConference.prototype.getConnectionTimes = function() {
@@ -3361,7 +3348,29 @@ JitsiConference.prototype._sendConferenceJoinAnalyticsEvent = function() {
         meetingId,
         participantId: `${meetingId}.${this._statsCurrentId}`
     }));
-    this._conferenceJoinAnalyticsEventSent = true;
+    this._conferenceJoinAnalyticsEventSent = Date.now();
+};
+
+/**
+ * Sends conference.left analytics event.
+ * @private
+ */
+JitsiConference.prototype._sendConferenceLeftAnalyticsEvent = function() {
+    const meetingId = this.getMeetingUniqueId();
+
+    if (!meetingId || !this._conferenceJoinAnalyticsEventSent) {
+
+        return;
+    }
+
+    Statistics.sendAnalytics(createConferenceEvent('left', {
+        meetingId,
+        participantId: `${meetingId}.${this._statsCurrentId}`,
+        stats: {
+            duration: Math.floor((Date.now() - this._conferenceJoinAnalyticsEventSent) / 1000),
+            perf: this.getPerformanceStats()
+        }
+    }));
 };
 
 /**
